@@ -1,0 +1,68 @@
+<?php
+/**
+ * @file
+ * Database schema for the Today's Hours module.
+ */
+
+/**
+ * Implements hook_schema().
+ */
+function todays_hours_schema() {
+  $schema['opening_hours_today_block'] = array(
+    'description' => "Table of enabled Today's Hours blocks.",
+    'fields' => array(
+      'nid' => array(
+        'description' => "{node}.nid that has Todays Hour's block enabled",
+        'type' => 'int',
+        'not null' => TRUE,
+        'default' => 0,
+      ),
+      'info' => array(
+        'description' => 'Block description that appears on block admin page',
+        'type' => 'varchar',
+        'length' => '128',
+        'not null' => FALSE,
+      ),
+      'machine_name' => array(
+        'description' => 'machine readable name for todays_hours blocks',
+        'type' => 'varchar',
+        'length' => '128',
+        'not null' => FALSE,
+      ),
+      'more_url' => array(
+        'description' => 'URL path to more info for hours',
+        'type' => 'varchar',
+        'length' => '128',
+        'not null' => FALSE,
+      ),
+      'additional_mobile' => array(
+        'description' => 'Option to create an additional block styled for mobile devices',
+        'type' => 'int',
+        'size' => 'tiny',
+        'not null' => FALSE,
+      ),
+    ),
+    'primary key' => array('nid'),
+    'unique keys' => array(
+      'info' => array('info')
+    ),
+  );
+  
+  return $schema;
+}
+
+/**
+ * Implements hook_update_N().
+ * Add machine name field to {opening_hours_todays_block} table.
+ */
+function todays_hours_update_7000() {
+  // Add machine_name field
+  $spec = array(
+    'type' => 'varchar',
+    'description' => t('Machine readable name for todays_hours blocks.'),
+    'length' => '128',
+    'not null' => FALSE,
+  ); 
+  db_add_field('opening_hours_today_block', 'machine_name', $spec);
+   
+}

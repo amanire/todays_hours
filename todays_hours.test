@@ -1,0 +1,125 @@
+<?php
+/**
+  * @file
+  *   Unit tests for the Tisch site module.  
+  */
+
+class TodaysHoursTestCase extends DrupalWebTestCase {
+
+  public static function getInfo() {
+    return array(
+      'name' => 'Today\'s Hours functionality',
+      'description' => 'Test the enable Today\'s Hours form functionality',
+      'group' => 'Today\'s Hours',
+    );
+  }
+
+  /**
+   * Enable modules and create users with specific permissions.
+   */
+  function setUp() {
+    parent::setUp(array('todays_hours', 'opening_hours'));
+    // Create users.
+    $this->admin_user = $this->drupalCreateUser(array(
+      'administer todays hours',
+      'administer content types',
+      'bypass node access',
+      'administer opening hours configuration',
+      'administer blocks',
+
+    ));
+  }
+
+  /**
+   * Test Today's hours block settings functionality.
+   */
+  function testTodaysHoursSettings() {
+    // Log in as an admin user.
+    $this->drupalLogin($this->admin_user);
+
+    $settings = array(
+      'type' => 'open_hours',
+    );
+    $content_type = $this->drupalCreateContentType($settings);
+    $this->assertEqual($content_type->type, 'open_hours');
+
+    // Check that Today's Hours settings don't appear when adding an open_hours node.
+    $this->drupalGet('node/add/open-hours');
+    $this->assertNoText(t('Enable Today\'s Hours block for this Open Hours node'), 'The Today\'s Hours block settings were not found.');
+
+    // Now enable Today's Hours on the open hours content type.
+    $edit = array(
+      'opening_hours_enabled' => TRUE
+    );    
+    $this->drupalPost('admin/structure/types/manage/open_hours', $edit, t('Save content type'));
+
+    // Check that Today's Hours settings appear when adding a new open_hours node.
+    $this->drupalGet('node/add/open-hours');
+    $this->assertText(t('Enable Today\'s Hours block for this'), 'The Today\'s Hours block settings were found.');
+
+    // Create Opening Hour's node
+    $settings = array(
+      'type' => 'open_hours',
+      'todays_hours_enabled' => 1,
+      'todays_hours_machine_name' => strtolower($this->randomName(12)),
+      'todays_hours_info' => 'Todays Hours block',
+      'todays_hours_more_url' => 'opening-hours',
+      'todays_hours_additional_mobile' => 1,
+    );
+    $node = $this->drupalCreateNode($settings);
+
+    // Enter sample opening hours for node
+    $record = (object) array(
+      'nid' => $node->nid,
+      'date' => date('Y-m-d'),
+      'start_time' => '08:00:00',
+      'end_time' => '18:00:00',
+    );
+    drupal_write_record('opening_hours', $record);
+
+    // Confirm that the Today's Hours block appears on the block overview page.
+    $this->drupalGet('admin/structure/block');
+    $this->assertText(t('Todays Hours block'), 'Today\'s hours block is present on block overview page for default theme.');
+    $this->assertText(t('Mobile: Todays Hours block'), 'Today\'s hours mobile block is present on block overview page for default theme.');
+
+    // Enable Today's Hours block in first sidebar region.
+    $block = array(
+      'info' => 'Today\'s Hours block',
+      'title' => 'Today\'s Hours',
+      'module' => 'todays_hours',
+      'delta' => $node->todays_hours_machine_name,
+      'id' => 'todays-hours-' . $node->todays_hours_machine_name,
+    );
+    $region = 'sidebar_first';
+    $this->moveBlockToRegion($block, $region);
+
+    // Enable Today's Hours mobile block in first sidebar region.
+    $block['info'] = 'Mobile: Today\'s Hours block';
+    $block['delta'] = $node->todays_hours_machine_name . '__mobile';
+    $this->moveBlockToRegion($block, $region);
+
+    // Confirm that opening hours are being displayed
+    $this->drupalGet('node');
+    $this->assertText('8:00am - 6:00pm', format_string('Opening/closing hours successfully being displayed on the page.'));
+  }
+
+  function moveBlockToRegion($block, $region) {
+    $edit = array();
+    $edit['blocks[' . $block['module'] . '_' . $block['delta'] . '][region]'] = $region;
+    $this->drupalPost('admin/structure/block', $edit, t('Save blocks'));
+
+    // Confirm that the block was moved to the proper region.
+    $this->assertText(t('The block settings have been updated.'), format_string('%block successfully moved to %region_name region.', array('%block' => $block['info'], '%region_name' => $region)));
+
+    // Confirm that the block is being displayed.
+    $this->drupalGet('node');
+    $this->assertText(t($block['title']), format_string('%block successfully being displayed on the page.', array('%block' => $block['info'])));
+
+    // Confirm that the block was found in the region.
+    $xpath = $this->buildXPathQuery('//div[@class=:region-class]//div[@id=:block-id]/*', array(
+      ':region-class' => 'region region-' . str_replace('_', '-', $region),
+      ':block-id' => 'block-' . str_replace('_', '-', $block['id']),
+    ));
+    $this->assertFieldByXPath($xpath, NULL, format_string('%block found in %region_name region.', array('%block' => $block['info'], '%region_name' => $region)));
+  }
+}

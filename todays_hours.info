@@ -1,0 +1,6 @@
+name = Today's Hours
+description = Today's Hours blocks from Opening Hours
+package = Custom
+core = 7.x
+dependencies[] = opening_hours
+files[] = todays_hours.test

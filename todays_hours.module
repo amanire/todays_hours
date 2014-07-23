@@ -1,0 +1,408 @@
+<?php
+
+/**
+ * @file
+ * Today's Hours
+ *
+ * Creates Today's Hours blocks from Opening Hours
+ */
+
+
+
+/**
+ * Implements hook_block_info()
+ */ 
+function todays_hours_block_info() {
+  $blocks = array();
+
+  $result = db_query('SELECT nid, info, machine_name, additional_mobile FROM {opening_hours_today_block} ORDER BY info');
+  foreach ($result as $block) {
+    $delta = $block->machine_name;
+    $blocks[$delta]['info'] = $block->info;
+    $blocks[$delta]['cache'] = DRUPAL_NO_CACHE;
+    if ($block->additional_mobile) {
+      $blocks[$delta . '__mobile']['info'] = 'Mobile: ' . $block->info;
+      $blocks[$delta . '__mobile']['cache'] = DRUPAL_NO_CACHE;
+    }
+  }
+  return $blocks;
+}
+
+/**
+ * Implements hook_view()
+ */ 
+function todays_hours_block_view($delta = '') {
+  $block = array();
+  // Check if Today's Hours block
+  $parts = explode('__', $delta);
+  $delta = $parts[0];
+  /*need to explode the delta here bc some of them have __mobile attached*/
+  $result = db_query('SELECT nid, additional_mobile FROM {opening_hours_today_block} WHERE machine_name = :delta', array(':delta' => $delta));
+  // Check if Today's Hours block
+  $record = $result->fetchAssoc();
+  $location = "";
+  switch ($delta) {
+    case ("music_library"):
+      $location = "Music Library";
+    break;
+    case ("media_hours"):
+      $location = "Media Desk";
+    break;
+    case ("dds_hours"):
+      $location = "DDS";
+    break;
+    case ("room_224_hours"):
+      $location = "Room 224";
+    break;
+    case ("late_night"):
+      $location = "Late Night Study";
+    break;
+    case ("tower_cafe"):
+      $location = "Tower Cafe";
+    break;
+    case ("arc_tutors"):
+      $location = "ARC Tutor Drop-In";
+    break;
+  }
+  $nid = $record['nid'];
+  if (isset($parts[1]) && $parts[1] == 'mobile') {
+    // Additional mobile Today's Hours block
+    $block['subject'] = t("Today's<br/> $location Hours");
+    $block['content'] = array(
+      '#theme' => 'todays_hours_mobile',
+      '#display' => 'default',
+      '#hours' => todays_hours_query($nid),
+    );      
+  }
+  else {
+    $block['subject'] = t("Today's <strong>$location Hours</strong>");
+    $block['content'] =  array(
+      '#theme' => 'todays_hours',
+      '#display' => 'default',
+      '#hours' => todays_hours_query($nid),
+    );
+  }
+  return $block;
+}
+
+/**
+ * Today's Hours Query
+ *
+ * Provides a keyed array containing formatted values for today's hours blocks
+ * Queries Open Hours tables based on today's date
+ *
+  * @param int $nid
+ *   The node id for the corresponding opening hours node.
+ *   
+ * @return
+ *   An associative array with the following keys:
+ *   - open: opening time with an array containing 24:00 time and am/pm
+ *   - close: closing time with an array containing 24:00 time and am/pm
+ */
+function todays_hours_query($nid = 0) {
+  $hours = array();
+  $hours['open'] = array(
+    'hour-min' => '00:00',
+    'am-pm' => NULL,
+  );
+  $hours['close'] = array(
+    'hour-min' => '00:00',
+    'am-pm' => NULL,
+  );
+  $hours['more-url'] = NULL;
+  if ($nid) {
+    $result = db_query("SELECT TIME_FORMAT(start_time, '%l:%i') AS open_hr_min,
+     TIME_FORMAT(start_time, '%p') AS open_am_pm,
+     TIME_FORMAT(end_time, '%l:%i') AS close_hr_min,
+     TIME_FORMAT(end_time, '%p') AS close_am_pm,
+     more_url
+     FROM {opening_hours} oh
+     JOIN {opening_hours_today_block} th ON th.nid=oh.nid
+     WHERE oh.nid=:nid AND date = CURDATE()", array(':nid' => $nid));
+    $record = $result->fetchObject();
+    if ($record) {
+      $hours['open'] = array(
+        'hour-min' => $record->open_hr_min,
+        'am-pm' => strtolower($record->open_am_pm),
+      );
+      $hours['close'] = array(
+        'hour-min' => $record->close_hr_min,
+        'am-pm' => strtolower($record->close_am_pm),
+      );
+      $hours['more-url'] = $record->more_url;
+    }
+  }
+  return $hours;
+}
+
+/**
+ * Implements hook_theme()
+ */ 
+function todays_hours_theme($existing, $type, $theme, $path) {
+  return array(
+    'todays_hours' => array(
+      'variables' => array(
+        'display' => 'default',
+        'hours' => array(),
+        'more_url' => '',
+        ),
+      'file' => 'todays_hours.theme.inc',
+    ),
+    'todays_hours_mobile' => array(
+      'variables' => array(
+        'display' => 'default',
+        'hours' => array(),
+        'more_url' => '',
+        ),
+      'file' => 'todays_hours.theme.inc',
+    ),
+  );
+}
+
+/**
+ * Implements theme_preprocess_block().
+ * 
+ * Override or insert variables into the block templates.
+ *
+ * @param $variables
+ *   An array of variables to pass to the theme template.
+ * @param $hook
+ *   The name of the template being rendered ("block" in this case.)
+ */
+function todays_hours_preprocess_block(&$variables, $hook) {
+  // Set block template and classes for Today's Hours
+  $block = $variables['elements']['#block'];
+  if(($block->module) == 'todays_hours'){
+    $parts = explode('__', $block->delta);
+    if (isset($parts[1]) && $parts[1] == 'mobile') {
+      $variables['classes_array'][] = 'todays-hours-block--mobile';
+    }
+    else{
+       $variables['classes_array'][] = 'todays-hours-block';
+    }
+  }
+}
+
+/**
+ * Implements hook_form_BASE_FORM_ID_alter().
+ *
+ * Provide checkbox and description for Today's Hours block per node
+ * with Opening Hours enabled.
+ */
+function todays_hours_form_node_form_alter(&$form, $form_state) {
+  $node = $form['#node'];
+  $variable_name = 'opening_hours_enabled_' . $node->type;
+  $opening_hours_enabled = variable_get($variable_name, array());
+  if (!empty($opening_hours_enabled) && user_access('administer todays hours')) {
+    $form['opening_hours'] = array(
+      
+      '#type' => 'fieldset',
+      '#collapsible' => TRUE,
+      '#collapsed' => FALSE,
+      '#group' => 'additional_settings',
+    );
+    $form['opening_hours']['todays_hours_enabled'] = array(
+      '#title' => t('Enable Today\'s Hours block for this %type node.', array('%type' => node_type_get_name($node))),
+      '#type' => 'checkbox',
+      '#default_value' => isset($node->todays_hours_enabled) ? $node->todays_hours_enabled : FALSE,
+    );
+    $form['opening_hours']['todays_hours_info'] = array(
+      '#title' => t('Block description'),
+      '#description' => t('A brief description of the block. Used on the Blocks administration page.'),
+      '#type' => 'textfield',
+      '#default_value' => isset($node->todays_hours_info) ? $node->todays_hours_info : FALSE,
+      '#size' => 60,
+      '#maxlength' => 128,
+      '#states' => array(
+        'invisible' => array(
+          ':input[name="todays_hours_enabled"]' => array('checked' => FALSE),
+        ),
+      ),
+    );
+    $form['opening_hours']['todays_hours_additional_mobile'] = array(
+      '#title' => t('Additional mobile block'),
+      '#type' => 'checkbox',
+      '#description' => t('Create an additional mobile block for this node.'),
+      '#states' => array(
+        'invisible' => array(
+          ':input[name="todays_hours_enabled"]' => array('checked' => FALSE),
+        ),
+      ),
+      );
+    $form['opening_hours']['todays_hours_machine_name'] = array(
+      '#type' => 'machine_name',
+      '#title' => t('Machine name'),
+      '#description' => t('A machine readable name to identify the block; helps with sharing across sites'),
+      '#machine_name' =>  array(
+        'exists' => 'todays_hours_check_machine_name_exists',
+        'source' => array('todays_hours_block_name($node->todays_machine_name)'), // the name of the source field that we will Take the User Friendly name from and convert it to Machine Friedly name ), ); - See more at: http://drupalst.com/blog/how-create-machine-name-field-drupal-7#sthash.8ptRx8py.dpuf
+        //'replace_pattern' => '[^a-z0-9-]+',
+        //'replace' => '_',
+      ),
+      '#required' => FALSE,
+      '#size' => 60,
+      '#maxlength' => 60,
+      '#default_value' => isset($node->todays_hours_machine_name) ? $node->todays_hours_machine_name : FALSE,
+      '#states' => array(
+        'invisible' => array(
+          ':input[name="todays_hours_enabled"]' => array('checked' => FALSE),
+        ),
+      ),
+    );
+    $form['opening_hours']['todays_hours_more_url'] = array(
+      '#title' => t('More URL path'),
+      '#type' => 'textfield',
+      '#description' => t('The URL path for the \'More\' link (href attribute).'),
+      '#default_value' => isset($node->todays_hours_more_url) ? $node->todays_hours_more_url : FALSE,
+      '#size' => 60,
+      '#maxlength' => 128,
+      '#states' => array(
+        'invisible' => array(
+          ':input[name="todays_hours_enabled"]' => array('checked' => FALSE),
+        ),
+      ),
+    );
+    $form['opening_hours']['todays_hours_additional_mobile'] = array(
+      '#title' => t('Additional mobile block'),
+      '#type' => 'checkbox',
+      '#description' => t('Create an additional mobile block for this node.'),
+      '#default_value' => isset($node->todays_hours_additional_mobile) ? $node->todays_hours_additional_mobile : FALSE,
+      '#states' => array(
+        'invisible' => array(
+          ':input[name="todays_hours_enabled"]' => array('checked' => FALSE),
+        ),
+      ),
+    );
+  }
+}
+
+/**
+* KB added for machine_name field.
+*/
+function todays_hours_check_machine_name_exists($name) {
+
+  $exists = db_query('SELECT 1 FROM {opening_hours_today_block} WHERE machine_name = :name', array(':name' => $name))->fetchField();
+  return $exists;
+}
+/**
+ * Implements hook_permission().
+ */
+function todays_hours_permission() {
+  return array(
+    'administer todays hours' => array(
+      'title' => t('Administer today\'s hours configuration'),
+      'description' => t('Allows the user to administer Today\'s Hours blocks.'),
+    ),
+  );
+}
+
+/**
+ * Implements hook_node_load().
+ */
+function todays_hours_node_load($nodes, $types) {
+  foreach ($nodes as $nid => $node) {
+    $data = todays_hours_get_todays_hours_enabled($node->nid);
+    $node->todays_hours_enabled = (bool) $data['nid'];
+    $node->todays_hours_info = $data['info'];
+    $node->todays_hours_machine_name = $data['machine_name'];
+    $node->todays_hours_more_url = $data['more_url'];
+    $node->todays_hours_additional_mobile = $data['additional_mobile'];
+  }
+}
+
+/**
+ * Implements hook_node_insert().
+ */
+function todays_hours_node_insert($node) {
+  if (isset ($node->todays_hours_enabled)) {
+    todays_hours_set_todays_hours_enabled($node->nid, $node->todays_hours_info, $node->todays_hours_machine_name, $node->todays_hours_more_url, $node->todays_hours_additional_mobile);
+  }
+}
+
+/**
+ * Implements hook_node_update().
+ */
+function todays_hours_node_update($node) {
+  todays_hours_delete_todays_hours_enabled($node->nid);
+  if ($node->todays_hours_enabled) {
+    todays_hours_set_todays_hours_enabled($node->nid, $node->todays_hours_info, $node->todays_hours_machine_name, $node->todays_hours_more_url, $node->todays_hours_additional_mobile);
+  }
+  else {
+    todays_hours_delete_todays_hours_block($node->todays_hours_machine_name);
+  }
+}
+
+/**
+ * Implements hook_node_delete().
+ */
+function todays_hours_node_delete($node) {
+  todays_hours_delete_todays_hours_block($node->todays_hours_machine_name);
+  todays_hours_delete_todays_hours_enabled($node->nid);
+}
+
+/**
+ * Determine if a node is set to create a Today's Hours block
+ *
+ * @param int $nid
+ *   The node id of the node in question.
+ *
+ * @return $result
+ *  An associative array containing:
+ *   - nid: the node id with the enabled Today's Hours block
+ *   - info: the block description
+ *   - machine_name: a machine readable name of the block
+ *   - more_url: the URL path for more information
+ *   - additional_mobile: option for an additional block themed for mobile
+ */
+function todays_hours_get_todays_hours_enabled($nid) {
+  if (is_numeric($nid)) {
+    $result = db_query("SELECT nid, info, machine_name, more_url, additional_mobile FROM {opening_hours_today_block} WHERE nid = :nid", 
+array('nid' => $nid))->fetchAssoc();
+    return $result;
+  }
+  return FALSE;
+}
+
+/**
+ * Add an entry for a node's Today's Hours block.
+ *
+ * @param int $nid
+ *   The node id of the node in question.
+ *   - info: the block description
+ *   - more_url: the URL path for more information
+ *   - additional_mobile: option for an additional block themed for mobile
+ */
+function todays_hours_set_todays_hours_enabled($nid, $info, $machine_name, $more_url, $additional_mobile) {
+  if (is_numeric($nid) &! todays_hours_get_todays_hours_enabled($nid)) {
+      db_insert('opening_hours_today_block')
+        ->fields(array('nid' => $nid, 'info' => $info, 'machine_name' => $machine_name, 'more_url' => $more_url, 'additional_mobile' => $additional_mobile))
+        ->execute();
+  }
+}
+
+/**
+ * Remove an entry for a node's Today's Hours block.
+ *
+ * @param int $nid
+ *   The node id of the node in question.
+ */
+function todays_hours_delete_todays_hours_enabled($nid) {
+  if (is_numeric($nid)) {
+    db_delete('opening_hours_today_block')
+      ->condition('nid', $nid)
+      ->execute();
+  }
+}
+
+/**
+ * Remove a Today's Hours block configuration when deleted
+ *
+ * @param var $machine_name
+ *   The machine name of the node will ID the related blocks
+ */
+function todays_hours_delete_todays_hours_block($machine_name) {
+     db_delete('block')     
+      ->condition('module', 'todays_hours')
+      ->condition(db_or()-> condition('delta', $machine_name)-> condition('delta', $machine_name .'__mobile'))
+      ->execute();
+}
