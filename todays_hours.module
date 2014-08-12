@@ -38,36 +38,16 @@ function todays_hours_block_view($delta = '') {
   $delta = $parts[0];
   /*need to explode the delta here bc some of them have __mobile attached*/
   $result = db_query('SELECT nid, additional_mobile FROM {opening_hours_today_block} WHERE machine_name = :delta', array(':delta' => $delta));
+  $title_result = db_query('SELECT title, additional_mobile FROM {opening_hours_today_block} WHERE machine_name = :delta', array(':delta' => $delta));
   // Check if Today's Hours block
   $record = $result->fetchAssoc();
-  $location = "";
-  switch ($delta) {
-    case ("music_library"):
-      $location = "Music Library";
-    break;
-    case ("media_hours"):
-      $location = "Media Desk";
-    break;
-    case ("dds_hours"):
-      $location = "DDS";
-    break;
-    case ("room_224_hours"):
-      $location = "Room 224";
-    break;
-    case ("late_night"):
-      $location = "Late Night Study";
-    break;
-    case ("tower_cafe"):
-      $location = "Tower Cafe";
-    break;
-    case ("arc_tutors"):
-      $location = "ARC Tutor Drop-In";
-    break;
-  }
+  $record_title=$title_result->fetchAssoc();
+ 
   $nid = $record['nid'];
+  $title = $record_title['title'];
   if (isset($parts[1]) && $parts[1] == 'mobile') {
     // Additional mobile Today's Hours block
-    $block['subject'] = t("Today's<br/> $location Hours");
+    $block['subject'] = $title;
     $block['content'] = array(
       '#theme' => 'todays_hours_mobile',
       '#display' => 'default',
@@ -75,7 +55,7 @@ function todays_hours_block_view($delta = '') {
     );      
   }
   else {
-    $block['subject'] = t("Today's <strong>$location Hours</strong>");
+    $block['subject'] = $title;
     $block['content'] =  array(
       '#theme' => 'todays_hours',
       '#display' => 'default',
@@ -195,7 +175,7 @@ function todays_hours_form_node_form_alter(&$form, $form_state) {
   $opening_hours_enabled = variable_get($variable_name, array());
   if (!empty($opening_hours_enabled) && user_access('administer todays hours')) {
     $form['opening_hours'] = array(
-      
+      '#title' => t('Opening Hours'),
       '#type' => 'fieldset',
       '#collapsible' => TRUE,
       '#collapsed' => FALSE,
@@ -228,7 +208,20 @@ function todays_hours_form_node_form_alter(&$form, $form_state) {
           ':input[name="todays_hours_enabled"]' => array('checked' => FALSE),
         ),
       ),
-      );
+    );
+	$form['opening_hours']['todays_hours_block_title'] = array(
+      '#title' => t('Block title'),
+      '#description' => t("The title of the block."),
+      '#type' => 'textfield',
+      '#default_value' => isset($node->todays_hours_block_title) ? $node->todays_hours_block_title : t("Today's hours"),
+      '#size' => 60,
+      '#maxlength' => 128,
+      '#states' => array(
+        'invisible' => array(
+          ':input[name="todays_hours_enabled"]' => array('checked' => FALSE),
+        ),
+      ),
+    );
     $form['opening_hours']['todays_hours_machine_name'] = array(
       '#type' => 'machine_name',
       '#title' => t('Machine name'),
@@ -304,6 +297,7 @@ function todays_hours_node_load($nodes, $types) {
     $data = todays_hours_get_todays_hours_enabled($node->nid);
     $node->todays_hours_enabled = (bool) $data['nid'];
     $node->todays_hours_info = $data['info'];
+	$node->todays_hours_block_title = $data['title'];
     $node->todays_hours_machine_name = $data['machine_name'];
     $node->todays_hours_more_url = $data['more_url'];
     $node->todays_hours_additional_mobile = $data['additional_mobile'];
@@ -315,7 +309,7 @@ function todays_hours_node_load($nodes, $types) {
  */
 function todays_hours_node_insert($node) {
   if (isset ($node->todays_hours_enabled)) {
-    todays_hours_set_todays_hours_enabled($node->nid, $node->todays_hours_info, $node->todays_hours_machine_name, $node->todays_hours_more_url, $node->todays_hours_additional_mobile);
+    todays_hours_set_todays_hours_enabled($node->nid, $node->todays_hours_info, $node->todays_hours_machine_name, $node->todays_hours_block_title, $node->todays_hours_more_url, $node->todays_hours_additional_mobile);
   }
 }
 
@@ -325,7 +319,7 @@ function todays_hours_node_insert($node) {
 function todays_hours_node_update($node) {
   todays_hours_delete_todays_hours_enabled($node->nid);
   if ($node->todays_hours_enabled) {
-    todays_hours_set_todays_hours_enabled($node->nid, $node->todays_hours_info, $node->todays_hours_machine_name, $node->todays_hours_more_url, $node->todays_hours_additional_mobile);
+    todays_hours_set_todays_hours_enabled($node->nid, $node->todays_hours_info, $node->todays_hours_machine_name, $node->todays_hours_block_title, $node->todays_hours_more_url, $node->todays_hours_additional_mobile);
   }
   else {
     todays_hours_delete_todays_hours_block($node->todays_hours_machine_name);
@@ -356,7 +350,7 @@ function todays_hours_node_delete($node) {
  */
 function todays_hours_get_todays_hours_enabled($nid) {
   if (is_numeric($nid)) {
-    $result = db_query("SELECT nid, info, machine_name, more_url, additional_mobile FROM {opening_hours_today_block} WHERE nid = :nid", 
+    $result = db_query("SELECT nid, info, machine_name, title, more_url, additional_mobile FROM {opening_hours_today_block} WHERE nid = :nid", 
 array('nid' => $nid))->fetchAssoc();
     return $result;
   }
@@ -372,10 +366,10 @@ array('nid' => $nid))->fetchAssoc();
  *   - more_url: the URL path for more information
  *   - additional_mobile: option for an additional block themed for mobile
  */
-function todays_hours_set_todays_hours_enabled($nid, $info, $machine_name, $more_url, $additional_mobile) {
+function todays_hours_set_todays_hours_enabled($nid, $info, $machine_name, $title, $more_url, $additional_mobile) {
   if (is_numeric($nid) &! todays_hours_get_todays_hours_enabled($nid)) {
       db_insert('opening_hours_today_block')
-        ->fields(array('nid' => $nid, 'info' => $info, 'machine_name' => $machine_name, 'more_url' => $more_url, 'additional_mobile' => $additional_mobile))
+        ->fields(array('nid' => $nid, 'info' => $info, 'machine_name' => $machine_name, 'title' => $title, 'more_url' => $more_url, 'additional_mobile' => $additional_mobile))
         ->execute();
   }
 }

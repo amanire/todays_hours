@@ -23,6 +23,12 @@ function todays_hours_schema() {
         'length' => '128',
         'not null' => FALSE,
       ),
+      'title' => array(
+        'description' => 'Title of the block',
+        'type' => 'varchar',
+        'length' => '128',
+        'not null' => FALSE,
+      ),
       'machine_name' => array(
         'description' => 'machine readable name for todays_hours blocks',
         'type' => 'varchar',
@@ -63,6 +69,15 @@ function todays_hours_update_7000() {
     'length' => '128',
     'not null' => FALSE,
   ); 
+  
   db_add_field('opening_hours_today_block', 'machine_name', $spec);
-   
 }
+function todays_hours_update_7100() {
+  $spec = array(
+    'type' => 'varchar',
+    'description' => t('Title of todays_hours blocks.'),
+    'length' => '128',
+    'not null' => FALSE,
+  ); 
+    db_add_field('opening_hours_today_block', 'title', $spec);
+} 
