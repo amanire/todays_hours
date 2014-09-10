@@ -113,7 +113,7 @@ class TodaysHoursTestCase extends DrupalWebTestCase {
 
     // Confirm that the block is being displayed.
     $this->drupalGet('node');
-    $this->assertText(t($block['title']), format_string('%block successfully being displayed on the page.', array('%block' => $block['info'])));
+    $this->assertPattern("/".str_replace('__', '-', $block['delta'])."/", format_string('%block successfully being displayed on the page.', array('%block' => $block['info'])));
 
     // Confirm that the block was found in the region.
     $xpath = $this->buildXPathQuery('//div[@class=:region-class]//div[@id=:block-id]/*', array(
